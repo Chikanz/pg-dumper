@@ -1,0 +1,27 @@
+{
+  "name": "pg-s3-backup",
+  "version": "1.0.0",
+  "description": "PostgreSQL backup to S3/R2 with retention management",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "docker build -t backupslut . && docker run -e CONNECTIONS_FILE=/app/connections-dev.json backupslut"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.529.1",
+    "@aws-sdk/lib-storage": "^3.529.1",
+    "date-fns": "^3.3.1",
+    "dotenv": "^16.4.5",
+    "fs-extra": "^11.2.0",
+    "pg": "^8.11.3",
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.8",
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.11.24",
+    "@types/pg": "^8.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
