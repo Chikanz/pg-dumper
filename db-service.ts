@@ -71,7 +71,16 @@ export class DatabaseService {
    */
   static createDumpStream(connectionDetails: ConnectionDetails): Readable {
     const { username, password, host, port, database } = connectionDetails;
-    
+
+    logger.info(`Starting PostgreSQL dump of database: ${database} on ${host}:${port}`);
+
+    // Track progress metrics
+    let bytesProcessed = 0;
+    const startTime = Date.now();
+
+    // Constants for logging thresholds
+    const LOG_THRESHOLD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+
     // Spawn pg_dump process
     const pgDump = spawn('pg_dump', [
       '-h', host,
@@ -79,13 +88,21 @@ export class DatabaseService {
       '-U', username,
       '-d', database,
       '-F', 'c', // Custom format (compressed)
+      '-v', // Verbose output
     ], {
       env: { ...process.env, PGPASSWORD: password },
     });
 
-    // Handle errors
+    // Handle errors and verbose output
     pgDump.stderr.on('data', (data) => {
-      logger.warn(`pg_dump stderr: ${data.toString()}`);
+      const message = data.toString().trim();
+
+      // pg_dump sends progress info to stderr when using -v flag
+      if (message.includes('processing')) {
+        logger.info(`Progress: ${message}`);
+      } else {
+        logger.warn(`pg_dump stderr: ${message}`);
+      }
     });
 
     pgDump.on('error', (error) => {
@@ -93,10 +110,28 @@ export class DatabaseService {
     });
 
     pgDump.on('exit', (code, signal) => {
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
       if (code !== 0) {
-        logger.error(`pg_dump exited with code ${code} and signal ${signal}`);
+        logger.error(`pg_dump exited with code ${code} and signal ${signal} after ${duration}s`);
       } else {
-        logger.debug('pg_dump completed successfully');
+        const gbProcessed = (bytesProcessed / (1024 * 1024 * 1024)).toFixed(2);
+        logger.info(`pg_dump completed successfully in ${duration}s, processed ${gbProcessed}GB`);
+      }
+    });
+
+    // Track stdout data size
+    pgDump.stdout.on('data', (chunk) => {
+      bytesProcessed += chunk.length;
+
+      // Log progress every 2GB
+      if (Math.floor((bytesProcessed - chunk.length) / LOG_THRESHOLD_BYTES) <
+          Math.floor(bytesProcessed / LOG_THRESHOLD_BYTES)) {
+        const gbProcessed = (bytesProcessed / (1024 * 1024 * 1024)).toFixed(2);
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        const mbPerSecond = (bytesProcessed / (1024 * 1024) / elapsedSeconds).toFixed(2);
+
+        logger.info(`Dump progress: ${gbProcessed}GB processed (${mbPerSecond}MB/s)`);
       }
     });
 

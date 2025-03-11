@@ -4,6 +4,11 @@ import { Readable } from 'stream';
 import { format, parseISO, subDays } from 'date-fns';
 import { S3Config } from './types';
 import { logger } from './logger';
+import {
+  ListMultipartUploadsCommand,
+  AbortMultipartUploadCommand,
+  ListMultipartUploadsCommandOutput
+} from '@aws-sdk/client-s3';
 
 export class S3Service {
   private client: S3Client;
@@ -172,4 +177,60 @@ export class S3Service {
     
     return prefix;
   }
+
+  /**
+   * Clean up any incomplete multipart uploads for a specific key or prefix
+   */
+  async cleanupIncompleteMultipartUploads(keyPrefix: string): Promise<number> {
+    try {
+
+
+
+      // Get the prefix part (folder structure) of the key
+      const prefix = keyPrefix.split('/').slice(0, -1).join('/') + '/';
+
+      logger.info(`Checking for incomplete multipart uploads with prefix: ${prefix}`);
+
+      // List all multipart uploads in progress
+      const listCommand = new ListMultipartUploadsCommand({
+        Bucket: this.config.bucket,
+        Prefix: prefix
+      });
+
+      const response: ListMultipartUploadsCommandOutput = await this.client.send(listCommand);
+      const uploads = response.Uploads || [];
+
+      if (uploads.length === 0) {
+        logger.info('No incomplete multipart uploads found');
+        return 0;
+      }
+
+      logger.warn(`Found ${uploads.length} incomplete multipart uploads to abort`);
+
+      // Abort each incomplete upload
+      let abortedCount = 0;
+      for (const upload of uploads) {
+        if (upload.Key && upload.UploadId) {
+          logger.info(`Aborting upload: ${upload.Key}, initiated: ${upload.Initiated}`);
+
+          const abortCommand = new AbortMultipartUploadCommand({
+            Bucket: this.config.bucket,
+            Key: upload.Key,
+            UploadId: upload.UploadId
+          });
+
+          await this.client.send(abortCommand);
+          abortedCount++;
+        }
+      }
+
+      logger.info(`Successfully aborted ${abortedCount} incomplete multipart uploads`);
+      return abortedCount;
+    } catch (error) {
+      logger.error('Error cleaning up incomplete multipart uploads:', error);
+      // Don't throw - we still want to try the upload
+      return 0;
+    }
+  }
 }
+
